@@ -1042,6 +1042,18 @@ class Cloth:
             phi_mat[control] = u_mat
             phi = phi_mat.reshape((self.n_verts*3, ), order='F')
         return phi 
+    
+    """
+    def projectControlCompliant(self,phi,u_mat,control,n_ctr,landa):
+        if n_ctr > 0:
+            w_c = self.m_inv[control]
+            phi_mat = phi.reshape((self.n_verts, 3), order='F')
+            dlt_landa = (-(phi_mat[control] - u_mat) - self.ctr*landa)/(w_c + self.ctr)
+            landa += dlt_landa
+            phi_mat[control] += w_c*dlt_landa
+            phi = phi_mat.reshape((self.n_verts*3, ), order='F')
+        return phi, landa
+    """
 
     @profile
     def projectConstraints(self,constraints,phi,u,control,landa,par,den_error,n):
