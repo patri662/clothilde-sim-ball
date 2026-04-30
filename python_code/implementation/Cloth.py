@@ -774,11 +774,11 @@ class Cloth:
         self.rho_M = M      
         dt_rho_M = (self.dt*self.rho_M).diagonal()
         self.dt_rho_M = dt_rho_M[:, np.newaxis]
-        self.dt2_delta_Fg = (dt**2)*self.delta*self.g*self.Fg
-        self.half_dt2_delta_Fg = 0.5*(dt**2)*self.delta*self.g*self.Fg  
+        self.dt2_delta_Fg = (self.dt**2)*self.delta*self.g*self.Fg
+        self.half_dt2_delta_Fg = 0.5*(self.dt**2)*self.delta*self.g*self.Fg  
 
         #aerodynamics    
-        self.half_dt2_Fg = 0.5*(dt**2)*self.g*self.Fg
+        self.half_dt2_Fg = 0.5*(self.dt**2)*self.g*self.Fg
         self.F_z = self.half_dt2_Fg[:,2].toarray().flatten(order='F')
         self.rho_M_plus_dt_D = (self.rho_M + self.dt*self.D).tocsr()
         self.E_aux = (self.rho_M + 0.5*self.dt*self.D - 0.25*(self.dt**2)*K).tocsr()
@@ -1042,18 +1042,6 @@ class Cloth:
             phi_mat[control] = u_mat
             phi = phi_mat.reshape((self.n_verts*3, ), order='F')
         return phi 
-    
-    """
-    def projectControlCompliant(self,phi,u_mat,control,n_ctr,landa):
-        if n_ctr > 0:
-            w_c = self.m_inv[control]
-            phi_mat = phi.reshape((self.n_verts, 3), order='F')
-            dlt_landa = (-(phi_mat[control] - u_mat) - self.ctr*landa)/(w_c + self.ctr)
-            landa += dlt_landa
-            phi_mat[control] += w_c*dlt_landa
-            phi = phi_mat.reshape((self.n_verts*3, ), order='F')
-        return phi, landa
-    """
 
     @profile
     def projectConstraints(self,constraints,phi,u,control,landa,par,den_error,n):
