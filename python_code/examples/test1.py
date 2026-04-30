@@ -9,19 +9,19 @@ np.set_printoptions(threshold=sys.maxsize)
 import time
 
 # Caida libre
-na = 20; nb = 33
+na = 30; nb = 30
 np.random.seed(1)
-X, T = createRectangularMesh(a = 0.5, b = 0.8, na = na, nb = nb, h = 0.2)
-X[:,2] += 0.7; 
+X, T = createRectangularMesh(a = 0.8, b = 0.8, na = na, nb = nb, h = 0.1)
+X[:,2] += 0.9; 
 X += 0.0001*np.random.randn(X.shape[0],3) 
 
 self = Cloth(X, T); 
-dt = self.estimateTimeStep(L=0.8)
+dt = 1/60 # self.estimateTimeStep(L=0.8)
 self.plotMesh()
-self.setSimulatorParameters(dt = dt, thck = 0.95, mu_s = 0.4, tol = 0.0085, shr = 15*1e-4, kappa=0.1*1e-4, kappa_bnd = 0.025*1e-4)
+self.setSimulatorParameters(dt = dt, thck = 0.95, mu_s = 0.3, tol = 0.005, shr = 5*1e-4, kappa=0.1*1e-4, kappa_bnd = 0.01*1e-4, str = 0.005*1e-4, sub_steps=9)
 
 tf = int(6/dt)
-inds = [0]
+inds = [0,na-1]
 u = self.positions[inds]
 start_time = time.time()
 for i in range(tf):
@@ -34,7 +34,7 @@ print('Time:',time.time()-start_time)
 print('Average iterations',self.total_iters/(len(self.history_pos)-1))
 
 
-self.makeMovie(speed = 6, repeat = True, smooth = 2)
+self.makeMovie(speed = 1, repeat = True, smooth = 2)
 #self.plotMesh()
 #self.saveFrames(speed = 4)
 
