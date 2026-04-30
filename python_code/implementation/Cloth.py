@@ -757,7 +757,7 @@ class Cloth:
 
         #self-collision parameters
         self.thck = thck
-        self.mov_tol = 0.025 #when some node moves 2.5% or more than its previous position, run computeClosePairs()
+        self.mov_tol = 0.02 #when some node moves 2% or more than its previous position, run computeClosePairs()
         self.computeRadiouses()
         self.eps_sus = 3.3*self.rad #threshold for detecting close balls in computeClosePairs()
 
