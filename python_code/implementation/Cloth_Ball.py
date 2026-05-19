@@ -1355,22 +1355,25 @@ class Cloth:
         
         #add friction here
         if self.ball.mu_b > 0 and n_iter < 5:
-            # norm_Fn = np.linalg.norm(ball_delta) * np.ones(len(idx))  # (k,)
+            #for the cloth
             norm_Fn = self.computeNorm(dlt_phi_idx)
-
-            nu = normals
-
-            cloth_displ = (self.positions[idx] - phi_mat[idx]) # (k,3) displacement of cloth vertex
-            ball_displ  = (self.ball.position - gamma0)[np.newaxis, :] # (1,3) displacement of ball this substep
-
-            # displacement of cloth w.r.t. ball surface
-            v = cloth_displ - ball_displ  # (k,3)
-            vt = v - (self.innerProduct(v,nu)[:, np.newaxis])*nu
-
+            nu = dlt_phi_idx/(norm_Fn[:,np.newaxis] + 1e-12)
+            v = self.positions[idx] - phi_mat[idx]
+            vt = v - (self.innerProduct(v,nu)[:,np.newaxis])*nu 
             F_mu = self.frictionForce(self.ball.mu_b,norm_Fn,vt,cap = True)
 
-            phi_mat[idx] += (w_cloth / total_w)[:, np.newaxis] * F_mu
-            self.ball.position += -np.sum((w_ball / total_w)[:, np.newaxis] * F_mu, axis=0)
+            #for the ball
+            norm_Fn = np.linalg.norm(ball_delta)
+            nu = ball_delta/(norm_Fn + 1e-12)
+            v = gamma0 - self.ball.position
+            vt = v - np.dot(v,nu)*nu 
+            norm_vt = np.linalg.norm(vt)
+            quotient = (self.ball.mu_b*norm_Fn)/(norm_vt + 1e-12)
+            k = np.minimum(1,quotient) #cannot move more than where CCD computed the intersection
+            F_mu_ball = k*vt
+
+            phi_mat[idx] += F_mu
+            self.ball.position += F_mu_ball
 
 
         #compute nu = ball_delta/ball_delta

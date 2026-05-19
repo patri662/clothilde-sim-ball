@@ -17,7 +17,7 @@ X[:,2] += 0.4; #adjust height
 clothilde = Cloth(X, T)
 
 
-clothilde.ball = clothilde.addBall(position=[0,0.05,0.5], rad=0.02, mass=0.3, friction=0.3)
+clothilde.ball = clothilde.addBall(position=[0.2,0.2,0.5], rad=0.04, mass=0.2, friction=0.4)
 
 print(f'Ball position: {clothilde.ball.position}')   # position
 print(f'Ball speed: {clothilde.ball.velocity}')      # velocity
@@ -28,7 +28,7 @@ print(f'Ball position history: {clothilde.ball.history_pos}')  # full trajectory
 
 # solver parameters
 dt = 1/60 #frame rate
-tol = 0.009 # up to 0.75% of relative error in constraint satisfaction to stop iterations
+tol = 0.0075 # up to 0.75% of relative error in constraint satisfaction to stop iterations
 
 #physical parameters
 rho = 0.1 #cloth density
