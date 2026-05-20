@@ -811,6 +811,7 @@ class Cloth:
         if hasattr(self, 'ball'): 
             self.ball.dt = self.dt
             self.ball.sub_steps = self.sub_steps
+            self.ball.mu_floor = self.mu_floor
 
 
     def unionMask(self,a,b):
@@ -1248,14 +1249,39 @@ class Cloth:
             # Euler: update velocity first, then position
             self.velocity[2] -= g * dt
             self.position += dt * self.velocity # position formula
-            # check floor collisionsfor the ball
+            # check floor collisions for the ball
 
         # method for floor collisions, which is for a single point now
         # need to call it in unconstrainedStep after updating position to check collisions!!
-        def floorCollisions(self):
+        def floorCollisions(self, gamma0):
             # check if ball edges touch the surface (< rad) -> cloth is 0 because is vertices/center touching floor
-            if self.position[2] < self.rad:  # rad because the ball surface, not center, hits the floor
-                self.position[2] = self.rad  # push center back up to just touching the floor
+            if self.position[2] < 1.2*self.rad:  # rad because the ball surface, not center, hits the floor
+                # penetration depth: like ballCollisions but floor
+                threshold = 1.2*(self.rad)
+                penetration = threshold - self.position[2]
+                
+                # project to floor surface (same as phi_mat[ind_col,2] = 0)
+                self.position[2] = 1.2*self.rad
+                
+                # tangent velocity = displacement this step projected off floor normal
+                # floor normal is [0,0,1], so tangential = xy components only
+                # (same as vt[:,2] = 0 in cloth)
+                vt = gamma0 - self.position
+                vt[2] = 0.0   
+
+                # normal force magnitude (same as nodes_faces_count * abs(z) in cloth,
+                # but ball has no face count so just use penetration depth directly)
+                norm_Fn = penetration                             
+
+                # friction force             
+                norm_vt = np.linalg.norm(vt)
+                quotient = (self.mu_floor*norm_Fn)/(norm_vt + 1e-12)
+                k = np.minimum(1,quotient) #cannot move more than where CCD computed the intersection
+                F_mu_ball_floor = k*vt
+                # apply friction to position
+                self.position += F_mu_ball_floor
+                
+                # self.position[2] = 1.2*self.rad  # push center back up to just touching the floor
 
         # method to simulate the ball that saves history as Cloth class
         def simulate(self, g=9.8):
@@ -1274,14 +1300,14 @@ class Cloth:
         dists = np.sqrt(np.einsum('ij,ij->i', diff, diff))  # (n_verts,)
         
         # a cloth vertex is close if distance < ball.rad + cloth.rad (sum of radii)
-        threshold = 1.1*(self.ball.rad + self.rad)
+        threshold = 1.2*(self.ball.rad + self.rad)
         self.ball.near_cloth = np.nonzero(dists < threshold)[0]
         self.ball.dists_cloth = dists[self.ball.near_cloth]
 
     # method to handle Ball Collisions, inside Cloth class because need its data and not accessible from Ball class
     # pushes cloth vertices out + push ball back (heavier object moves less)
     # called in Cloth.simulate() after selfCollisions(), as it is when any collisions with cloth are handled
-    def ballCollisions(self, phi, gamma0, n_iter):
+    def ballCollisions(self, phi, gamma0, n_iter, max_iters=50):
         
         if not hasattr(self, 'ball'):
             return phi
@@ -1302,53 +1328,28 @@ class Cloth:
         normals = diff / dists[:, np.newaxis]  # (k, 3)  unit normals away from ball center
         
         # penetration depth: positive means inside ball
-        threshold = self.ball.rad + self.rad
+        threshold = 1.2*(self.ball.rad + self.rad)
         penetration = threshold - dists  # (k,) where > 0 means inside
         error_pntr = np.min(-penetration/threshold)
         # only correct actually penetrating vertices
         mask = penetration > 0
+
         if error_pntr >= -self.tol:
             return phi
-        
+    
         idx = idx[mask]
         normals = normals[mask]
         penetration = penetration[mask]
-        
+    
         # mass weights
         w_cloth = self.m_inv[idx]               # (k,)
         w_ball  = 1.0 / self.ball.mass
         total_w = w_cloth + w_ball            # (k,)
-        
-        # --- velocity impulse ---
-        # relative velocity of ball w.r.t. each cloth vertex, projected onto normal
-        # cloth vertex velocity approximated from (positions - phi_mat) / dt
-        cloth_vel = (self.positions[idx] - phi_mat[idx]) / self.dt   # (k,3)
-        #rel_vel = self.ball.velocity[np.newaxis, :] - cloth_vel       # ball moves into cloth → negative dot with normal
-        # cloth vertices treated as stationary; only ball velocity corrected
-        vn = np.einsum('ij,ij->i', 
-                   np.tile(self.ball.velocity, (len(normals), 1)), 
-                   normals)          # >0 means ball moving toward cloth vertex                  # (k,) signed: >0 means approaching
-
-        # only apply impulse where ball is actually moving INTO the cloth vertex
-        """
-        approaching = vn > 0
-        if np.any(approaching):
-            # impulse magnitude per contact (no restitution — perfectly inelastic along normal)
-            j = vn[approaching] / total_w[approaching]                # (k_app,)
-            # correct ball velocity: average impulse over all approaching contacts
-            ball_dv = -np.sum(j[:, np.newaxis] * normals[approaching], axis=0) * w_ball
-            self.ball.velocity += ball_dv / max(1, np.sum(approaching))
-        """
-         # impulse magnitude per contact (no restitution — perfectly inelastic along normal)
-        #j = vn / total_w            # (k_app,)
-        # correct ball velocity: average impulse over all approaching contacts
-        #ball_dv = -np.sum(j[:, np.newaxis] * normals, axis=0) * w_ball
-        #self.ball.velocity += ball_dv / max(1, np.sum(approaching))
 
         # correct cloth vertices
         dlt_phi_idx = (w_cloth / total_w)[:, np.newaxis] * penetration[:, np.newaxis] * normals # normal correction
         phi_mat[idx] += dlt_phi_idx
-        
+    
         # correct ball: average reaction over all contacts
         ball_delta = -np.sum((w_ball / total_w)[:, np.newaxis] * penetration[:, np.newaxis] * normals, axis=0)
         self.ball.position += ball_delta
@@ -1375,9 +1376,6 @@ class Cloth:
             phi_mat[idx] += F_mu
             self.ball.position += F_mu_ball
 
-
-        #compute nu = ball_delta/ball_delta
-        # compute vt = v_ball - v_ball*nu 
         
         return phi_mat.flatten(order='F')
     
@@ -1394,7 +1392,9 @@ class Cloth:
 
             #current position of the cloth 
             phi0 = self.positions.reshape((3*self.n_verts,),order = 'F')
-            gamma0 = self.ball.position.copy()
+            # check if ball class initialized
+            if hasattr(self, 'ball'):
+                gamma0 = self.ball.position.copy()
 
             #interpolated control
             u_raw = U[s]; #u_mat = u.reshape((n_ctr,3),order='F')
@@ -1440,10 +1440,10 @@ class Cloth:
 
             # --- ball floor collision after constraint loop ---
             if hasattr(self, 'ball'):
-                self.ball.floorCollisions()
+                self.ball.floorCollisions(gamma0)
+                self.ball.velocity = (self.ball.position - gamma0)/self.ball.dt
 
             #update internal cloth variables
-            self.ball.velocity = (self.ball.position - gamma0)/self.ball.dt
             dphi = (phi-phi0)/self.dt
             self.positions = phi.reshape((self.n_verts, 3), order='F')
             self.velocities = dphi.reshape((self.n_verts, 3), order='F')
