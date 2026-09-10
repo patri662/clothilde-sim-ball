@@ -117,3 +117,119 @@ def duplicate_node_pairs(X, tol=1e-9):
     pairs.sort(axis=1)  # ensure (i, j) with i < j
     return pairs
 
+
+# function to create mesh for the solid
+# it builds the positions arrays (X in cloth) that is used in Cloth.addSolid(), with the 'edges' connectivity (T in cloth)
+# similar to createMesh() for Cloth: create solid shape as a set of nodes around the 'center' with the 'template' shape
+# moving the object in position is just done with 'center' point
+
+def createSolidMesh(center, template, edges=None, faces=None): # faces for rendering
+    """
+    Parameters
+    ----------
+    center : (3,) array
+        World-space position where solid is placed.
+    template : (n_nodes, 3) array
+        Local node offsets relative to origin that define shape of solid -> corners of cube, two ends of a bar...
+    edges : (n_edges, 2) array, optional
+        Connectivity information for the solid's edges. Node index pairs that solid holds at their initial distances from each other.
+    faces : (n_faces, 4) array, optional
+        Quad connectivity for surface rendering of the solid. If None, no surface is drawn.
+    
+    Returns
+    -------
+    positions : (n_nodes, 3) array
+        World-space positions of solid's nodes for Cloth.addSolid().
+    edges : (n_edges, 2) array
+        Connectivity information for the solid's edges. If edges is None, returns empty array.
+    faces : (n_faces, 4) array
+        Quad connectivity for rendering. If faces is None, returns empty array.
+
+    Example
+    -------
+    >>> template, edges, faces = cubeTemplate(side=0.4)
+    >>> positions, edges, faces = createSolidMesh(center=[0, 0, 2], template=template, edges=edges, faces=faces)
+    >>> cloth.solid = cloth.addSolid(positions, rad=0.05, mass=1.0, friction=0.3, edges=edges, faces=faces)
+    """
+
+    positions = np.array(template, dtype=float) + np.array(center, dtype=float)
+    edges = np.zeros((0, 2), dtype=int) if edges is None else np.array(edges, dtype=int)
+    faces = np.zeros((0, 4), dtype=int) if faces is None else np.array(faces, dtype=int)
+    
+    return positions, edges, faces
+
+# if n_segments = 1, is the simple bar with 2 nodes at the ends
+# if n_segments > 1, there are n_segments+1 nodes, evenly spaced along `axis`, centered at the origin
+def barTemplate(length=1.0, axis=0, n_segments=1):
+    # n_segments+1 nodes, evenly spaced along `axis`, centered at the origin
+    coords = np.linspace(-length/2, length/2, n_segments + 1)
+    template = np.zeros((n_segments + 1, 3))
+    template[:, axis] = coords
+
+    # connect each node only to the next one: a simple chain
+    edges = np.column_stack((
+        np.arange(n_segments),
+        np.arange(1, n_segments + 1)
+    ))
+    return template, edges
+
+def quadTemplate(side=1.0):
+    """4 nodes of a regular quadrilater, edge length `side`.
+    Fully connected (6 edges): every pair of vertices in a tetrahedron is an
+    edge."""
+    base = np.array([
+        [ 1,  1,  1],
+        [ 1, -1, -1],
+        [-1,  1, -1],
+        [-1, -1,  1],], dtype=float)
+    base -= base.mean(axis=0)  # center at the origin
+    edge_len = np.linalg.norm(base[0] - base[1])
+    template = base * (side / edge_len)  # rescale to the requested edge length
+    edges = np.array([[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]])
+    return template, edges
+
+def cubeSurfaceTemplate(side=1.0, n=2):
+    """
+    Cube, centered at the origin, built as 6 flat n x n grids.
+ 
+    n=2 reproduces the original 8-corner-only cube (12 edges, 0 midpoints).
+    n=3 adds one midpoint per edge and one center point per face (26 nodes
+    total, like a Rubik's cube). Higher n gives a finer grid on each face.
+ 
+    Returns
+    -------
+    template : (n_nodes, 3) local node offsets, centered at the origin
+    edges : (n_edges, 2) unique wireframe edges (for rendering only)
+    faces : (n_quads, 4) quad connectivity of the cube surface
+    """
+    h = side / 2.0
+    faces = [
+        lambda x, y: (x, y, -h*np.ones_like(x)),   # bottom (z=-h)
+        lambda x, y: (x, y,  h*np.ones_like(x)),   # top    (z=+h)
+        lambda x, y: (x, -h*np.ones_like(x), y),   # front  (y=-h)
+        lambda x, y: (x,  h*np.ones_like(x), y),   # back   (y=+h)
+        lambda x, y: (-h*np.ones_like(x), x, y),   # left   (x=-h)
+        lambda x, y: ( h*np.ones_like(x), x, y),   # right  (x=+h)
+    ]
+ 
+    all_X, all_T, offset = [], [], 0
+    for f in faces:
+        X, T = createMesh([-h, h, -h, h], n, n,
+                           *[lambda x, y, i=i, f=f: f(x, y)[i] for i in range(3)])
+        all_X.append(X)
+        all_T.append(T + offset)
+        offset += X.shape[0]
+    X = np.vstack(all_X)
+    T = np.vstack(all_T)
+ 
+    # merge coincident nodes shared between adjacent faces (exact match,
+    # since every face reuses the same linspace(-h,h,n) endpoints/interior points)
+    X_unique, inverse = np.unique(X, axis=0, return_inverse=True)
+    T_merged = inverse[T]
+ 
+    # derive wireframe edges from the quad connectivity, for rendering only
+    edges = np.vstack([T_merged[:, [0, 1]], T_merged[:, [1, 2]],
+                        T_merged[:, [2, 3]], T_merged[:, [3, 0]]])
+    edges = np.unique(np.sort(edges, axis=1), axis=0)
+ 
+    return X_unique, edges, T_merged # T_merged are the faces for rendering, not used for physics
