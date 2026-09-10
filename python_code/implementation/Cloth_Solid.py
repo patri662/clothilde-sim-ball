@@ -1199,6 +1199,7 @@ class Cloth:
             
             # dimension of each node
             self.rad = np.full(self.n_nodes, rad, dtype=float) if np.isscalar(rad) else np.array(rad, dtype=float)
+            self.rad_mean = np.mean(self.rad)
             
             #for plotting with polyscope
             self.ps_frame = 0 #for making a movie: go through the history
@@ -1446,13 +1447,13 @@ class Cloth:
     # it is a simple distance computation from all cloth vertices to one point, not KDTree needed
     # loops over solid nodes because each node can end up close to a different number of cloth
     @profile
-    def computeClosePairsBall(self, phi_mat):
+    def computeClosePairsBall2(self, phi_mat):
         solid = self.solid
 
         # KDT tree 
         tree = cKDTree(phi_mat)
 
-        threshold = 1.1 * (solid.rad + self.rad)  # (nodes_solid, nodes_cloth)
+        threshold = 1.1 * (solid.rad_mean + self.rad)  # (nodes_solid, nodes_cloth)
 
         neighbors = tree.query_ball_point(solid.positions, r=threshold)  
 
@@ -1467,6 +1468,56 @@ class Cloth:
             else:
                 solid.dists_cloth[n] = np.empty(0)
 
+    @profile
+    def computeClosePairsBall3(self, phi_mat):
+        solid = self.solid
+
+        tree = KDTree(phi_mat)
+
+        threshold = 1.1 * (solid.rad_mean + self.rad)
+
+        # Must be large enough to contain all possible neighbors
+        k = 10
+
+        # Shapes: (n_solid, k)
+        dists, neighs = tree.query(solid.positions, k=k)
+
+        
+        # Which queried points are actually close enough?
+        close = dists < threshold
+
+        # Convert back to your current list-of-arrays representation
+        solid.near_cloth = [
+            neighs[i, close[i]]
+            for i in range(len(solid.positions))
+        ]
+
+        solid.dists_cloth = [
+            dists[i, close[i]]
+            for i in range(len(solid.positions))
+        ]
+
+    @profile
+    def computeClosePairsBall(self, phi_mat):
+        solid = self.solid
+
+        tree = KDTree(phi_mat)
+
+        threshold = 1.1 * (solid.rad_mean + self.rad)
+
+        # Must be large enough to contain all possible neighbors
+        k = 6
+
+        # Shapes: (n_solid, k)
+        dists, neighs = tree.query(solid.positions, k=k)
+
+        
+        # Which queried points are actually close enough?
+        #close = dists < threshold
+
+        solid.near_cloth = neighs
+        #solid.dists_cloth = dists
+        solid.mask_cloth = dists < threshold
 
     # method to handle Ball Collisions, inside Cloth class because need its data and not accessible from Ball class
     # pushes cloth vertices out + push ball back (heavier object moves less)
@@ -1489,7 +1540,8 @@ class Cloth:
         self.computeClosePairsBall(phi_mat)
 
         for n in range(solid.n_nodes):
-            idx = solid.near_cloth[n]  # indices of cloth vertices close to this solid node
+            #idx = solid.near_cloth[n]  # indices of cloth vertices close to this solid node
+            idx = solid.near_cloth[n, solid.mask_cloth[n]]
             if idx.shape[0] == 0:
                 continue
         
